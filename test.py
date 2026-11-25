@@ -1,6 +1,12 @@
+# imports
+
 import numpy as np
 from itertools import permutations
 from scipy.optimize import linear_sum_assignment
+import csv
+
+
+# functions
 
 def generate_A_P(n):
 
@@ -85,8 +91,385 @@ def generate_A_P(n):
 
     return A
 
+def generate_A_NP(n):
+    
+    """Generate a random matrix for the NP-hard component of the LOP.
 
-def test_A_P(A):
-    D = A - A.T
-    test = D[:, :, None] + D[None, :, :] - D[:, None, :]
+    The function assigns entries in pairs and constructs the corresponding
+    skew-symmetric difference matrix D = A - A.T. It aims to make each row
+    of D sum to zero by choosing values for unassigned differences to balance
+    the row.
+
+    Args:
+        n: Number of rows and columns.
+
+    Returns:
+        An n-by-n NumPy array A whose difference matrix is intended to have
+        zero row sums.
+    """
+    
+    A = np.zeros((n, n))
+    D = np.zeros((n, n))
+
+    idx = np.argwhere(A == 0)
+
+    while len(idx) > 0:
+
+        # Choose two random indices i and j, such that a_ij has not been assigned.
+        i, j = idx[np.random.choice(len(idx))]
+        idx = np.delete(idx, np.where(np.all(idx == [i, j], axis=1)), axis=0)
+        idx = np.delete(idx, np.where(np.all(idx == [j, i], axis=1)), axis=0)
+
+        if i == j:
+            A[i, j] = np.random.uniform(-1, 1)
+            D[i, j] = 0.0
+            continue
+
+        # Do randomly one of the following three steps:
+        step = np.random.choice([1, 2])
+
+        if step == 1:
+            # Assign a_ij and a_ji random values. 
+            a_ij = np.random.uniform(-1, 1)
+            a_ji = np.random.uniform(-1, 1)
+
+            # Set d_ij = a_ij-a_ji and d_ji = a_ji - a_ij.
+            d_ij = a_ij - a_ji
+            d_ji = a_ji - a_ij
+        
+        if step == 2:
+            # Assign randomly d_ij and a_ij.
+            d_ij = np.random.uniform(-1, 1)
+            a_ij = np.random.uniform(-1, 1)
+
+            # Set d_ji = -d_ij and a_ji = d_ji + a_ij.
+            d_ji = -d_ij
+            a_ji = d_ji + a_ij
+
+        A[i, j] = a_ij
+        A[j, i] = a_ji
+        D[i, j] = d_ij
+        D[j, i] = d_ji
+
+        # If there is a row i in D such that all of the elements except one (plus the diagonal????????????????), d_ik, have been assigned
+        switch = True
+        while switch == True: 
+            switch = False
+            for i in range(n):
+                if np.count_nonzero(D[i,:]) == n-2:
+                    switch = True
+
+                    k = np.where(D[i] == 0)[0]
+                    k = np.delete(k, np.where(k == i))[0] # Remove the diagonal element
+                    # Set d_ik = - sum_{j != k} d_ij.
+                    d_ik = - np.sum(D[i])
+                    # Set d_ki = -d_ik.
+                    d_ki = -d_ik
+
+                    # Then, do randomly one of these steps:
+                    step = np.random.choice([1, 2])
+
+                    if step == 1:
+                        # Assign a_ik a random value. 
+                        a_ik = np.random.uniform(-1, 1)
+
+                        # Set a_ki = d_ki + a_ik.
+                        a_ki = d_ki + a_ik
+                    
+                    if step == 2:
+                        # Assign a_ki a random value. 
+                        a_ki = np.random.uniform(-1, 1)
+
+                        # Set a_ik = d_ik + a_ki.
+                        a_ik = d_ik + a_ki
+                    
+                    A[i, k] = a_ik
+                    A[k, i] = a_ki
+                    D[i, k] = d_ik
+                    D[k, i] = d_ki
+
+                    idx = np.delete(idx, np.where(np.all(idx == [i, k], axis=1)), axis=0)
+                    idx = np.delete(idx, np.where(np.all(idx == [k, i], axis=1)), axis=0)
+
+    
+    return A           
+
+def test_A_NP(A):
+    test = (A - A.T).sum(axis=1)
     return np.allclose(test, 0)
+
+def generate_LOP(n, eps=0):
+
+    """Generate a Linear Ordering Problem matrix from P and NP-hard components.
+
+    Args:
+        n: Number of rows and columns in the matrices.
+        eps: Weight applied to the NP-hard component.
+
+    Returns:
+        An n-by-n NumPy array describing a random LOP problem..
+    """
+
+    found = False
+    while found == False:
+        A_NP = generate_A_NP(n)
+        if test_A_NP(A_NP) == True:
+            return generate_A_P(n) + eps * A_NP
+
+def objective_function(A):
+
+    """Compute the objective value of the LOP problem for a given input matrix.
+
+    Args:
+        A: A square NumPy array representing the ordered LOP matrix.
+
+    Returns:
+        The sum of A[i, j] over all indices i < j.
+    """
+    n = len(A)
+    i,j = np.triu_indices(n, k=1)
+    return np.sum(A[i,j])
+
+def exact_solution(LOP):
+    
+    """Find an optimal ordering by checking every permutation.
+
+    Args:
+        LOP: A square NumPy array representing the LOP instance.
+
+    Returns:
+        A permutation of row/column indices that maximizes the objective
+        function. If multiple permutations tie, returns the first one found.
+    """
+    
+    n = len(LOP)
+    list_permutations = list(permutations(range(n)))
+
+    sol = float("-inf")
+
+    sol2 = float("inf")
+
+    for sigma in list_permutations:
+
+        A = np.zeros((n,n))
+        for i, j in np.ndindex( (n,n) ):
+            A[i,j] = LOP[sigma[i], sigma[j]]
+
+        sol_A = objective_function(A)
+
+        if sol_A > sol:
+            sol = sol_A
+            sigma_max = sigma
+
+        if sol_A < sol2:
+            sol2 = sol_A
+            sigma_min = sigma
+
+        # print(f'Permutation: {sigma} --> Objective function: {sol_A}')
+        
+
+    return sigma_max, sigma_min
+
+
+def becker_constructive(LOP):
+
+    """Construct an ordering using Becker's greedy heuristic.
+    
+        At each step, computes for every remaining item the ratio of its
+        off-diagonal row sum to its off-diagonal column sum, then selects the
+        item with the largest ratio. The selected item's original index is
+        appended to the ordering, and its row and column are removed before
+        repeating.
+    
+        Args:
+            LOP: A square NumPy array representing the LOP instance.
+    
+        Returns:
+            A NumPy array of original indices defining the constructed ordering.
+        """
+
+    n = len(LOP)
+    A = np.copy(LOP)
+
+    indexes = np.arange(n)
+    sigma = np.array([])
+
+    while len(sigma) < n:
+
+        if len(indexes) > 1:
+            diagonal = np.diag(A)
+            q = (A.sum(axis=1) - diagonal) / (A.sum(axis=0) - diagonal)
+            i = np.argmax(q)
+        else:
+            i = 0
+            
+        sigma = np.append(sigma, indexes[i])
+        A = np.delete(A, i, axis=0)
+        A = np.delete(A, i, axis=1)
+        indexes = np.delete(indexes, i)
+
+    return sigma
+
+def simple_row_col_subtraction(LOP):
+
+    """Construct an ordering by greedily selecting the largest row score.
+
+    The score for each item is its row sum in ``LOP - LOP.T``. At each
+    step, the remaining item with the highest score is appended to the
+    ordering and removed from consideration. Scores are computed from the
+    original matrix and are not recalculated after each selection.
+
+    Args:
+        LOP: A square NumPy array representing the LOP instance.
+
+    Returns:
+        A NumPy array of original indices defining the constructed ordering.
+    """
+
+    n = len(LOP)
+    A = np.copy(LOP)
+
+    indexes = np.arange(n)
+    sigma = np.array([])
+
+    while len(indexes) > 0:
+
+        q = (A - A.T).sum(axis=1)
+        i = np.argmax(q[indexes])
+
+        sigma = np.append(sigma, indexes[i])
+        indexes = np.delete(indexes, i)
+
+    return sigma
+
+def row_col_subtraction(LOP):
+
+    """Construct an ordering using a row/column subtraction heuristic.
+
+    At each step, computes row sums of ``LOP - LOP.T`` and compares the
+    largest and smallest scores among the remaining indices. It places one
+    selected index at the beginning or end of the ordering, then removes it
+    from consideration.
+
+    Args:
+        LOP: A square NumPy array representing the LOP instance.
+
+    Returns:
+        A NumPy array of indices defining the constructed ordering.
+    """
+
+    n = len(LOP)
+    A = np.copy(LOP)
+
+    indexes = np.arange(n)
+    sigma = np.array([-1])
+
+    while len(indexes) > 0:
+
+        q = (A - A.T).sum(axis=1)
+        i1 = np.argmax(q[indexes])
+        i2 = np.argmax(-q[indexes])
+
+        if q[i1] > -q[i2]:
+            sigma = np.insert(sigma, np.where(sigma == -1)[0][0],       i1)
+            indexes = np.delete(indexes, i1)
+        else:
+            sigma = np.insert(sigma, np.where(sigma == -1)[0][0] + 1,   i2)
+            indexes = np.delete(indexes, i2)
+
+    sigma = np.delete(sigma, -1)
+
+    return sigma
+
+def univariate_inf(LOP):
+
+    """Find a permutation maximizing the sum of one selected entry per row.
+
+    Exhaustively checks all permutations and maximizes
+    ``sum(LOP[i, sigma[i]] for i in range(n))``. It also constructs a
+    matrix from the antisymmetric row sums and prints the result of applying
+    the linear sum assignment algorithm to that matrix; this result does not
+    affect the returned permutation.
+
+    Args:
+        LOP: A square NumPy array.
+
+    Returns:
+        A permutation of column indices maximizing the selected-entry sum.
+    """
+
+    n = len(LOP)
+    A = np.copy(LOP)
+
+    m0 = (A - A.T).sum(axis=1)
+    M = m0 * (1 - 2 * np.arange(n)[:, None] / (n - 1))
+
+    sol = float("-inf")
+
+    print(linear_sum_assignment(M))
+
+
+    for sigma in list(permutations(range(n))):
+
+        sol_A = np.sum([A[i][sigma[i]] for i in range(n)])
+
+        if sol_A > sol:
+            sol = sol_A
+            sigma_max = sigma
+
+    return sigma_max
+
+def error(A, sigma, sigma_max, sigma_min):
+
+    A_sigma     = A[np.ix_(sigma, sigma)]
+    A_sigma_max = A[np.ix_(sigma_max, sigma_max)]
+    A_sigma_min = A[np.ix_(sigma_min, sigma_min)]
+
+    f_sigma     = objective_function(A_sigma)
+    f_sigma_max = objective_function(A_sigma_max)
+    f_sigma_min = objective_function(A_sigma_min) 
+
+    return np.abs( f_sigma - f_sigma_max ) / np.abs( f_sigma_max - f_sigma_min )
+
+
+
+# results
+
+with open("data.csv", "w", newline="") as file:
+
+    writer = csv.DictWriter(file, fieldnames=['n', 'eps', 'iter', 'matrix', 'sigma_max', 'sigma_min', 'alg1', 'e1', 'alg2', 'e2', 'alg3', 'e3', 'alg4', 'e4'])
+    writer.writeheader()
+
+    for n in [10, 11]:
+        for eps in np.concatenate(([0.0], 10.0**np.arange(-2, 2.5, 0.25))):
+            for i in range(20):
+
+                LOP = generate_LOP(n, eps=eps)
+
+                sigma_max, sigma_min = exact_solution(LOP)
+
+                solution_1  = becker_constructive(LOP)
+                error_1     = error(LOP, solution_1, sigma_max, sigma_min)
+                solution_2  = simple_row_col_subtraction(LOP)
+                error_2     = error(LOP, solution_2, sigma_max, sigma_min)
+                solution_3  = row_col_subtraction(LOP)
+                error_3     = error(LOP, solution_3, sigma_max, sigma_min)
+                solution_4  = univariate_inf(LOP)
+                error_4     = error(LOP, solution_4, sigma_max, sigma_min)
+
+                writer.writerow({
+                    'n': n,
+                    'eps': eps,
+                    'iter': i,
+                    'matrix': LOP,
+                    'sigma_max': sigma_max,
+                    'sigma_min': sigma_min,
+                    'alg1': solution_1,
+                    'e1': error_1,
+                    'alg2': solution_2,
+                    'e2': error_2,
+                    'alg3': solution_3,
+                    'e3': error_3,
+                    'alg4': solution_4,
+                    'e4': error_4
+                })
