@@ -3,7 +3,8 @@
 import numpy as np
 from itertools import permutations
 from scipy.optimize import linear_sum_assignment
-import csv
+import os
+from numpy.lib.format import open_memmap
 
 
 
@@ -268,7 +269,8 @@ def exact_solution(LOP):
 
         # print(f'Permutation: {sigma} --> Objective function: {sol_A}')
 
-    return sigma_max, sigma_min
+    return np.array(sigma_max, dtype=int), np.array(sigma_min, dtype=int)
+
 
 def becker_constructive(LOP):
 
@@ -332,7 +334,7 @@ def simple_row_col_subtraction(LOP):
     A = np.copy(LOP)
 
     indexes = np.arange(n)
-    sigma = np.array([])
+    sigma = np.array([], dtype=int)
 
     while len(indexes) > 0:
 
@@ -364,7 +366,7 @@ def row_col_subtraction(LOP):
     A = np.copy(LOP)
 
     indexes = np.arange(n)
-    sigma = np.array([-1])
+    sigma = np.array([-1], dtype=int)
 
     while len(indexes) > 0:
 
@@ -409,7 +411,7 @@ def univariate_inf(LOP):
     # sigma_list = list(permutations(range(n)))
     # sigma = sigma_list[np.argmax(   [np.sum(  [ M[i][omega[i]] for i in range(n)]  )  for omega in sigma_list]   )]
 
-    return linear_sum_assignment(-M)[1]
+    return np.array(linear_sum_assignment(-M)[1], dtype=int)
 
 def error(A, sigma, sigma_max, sigma_min):
 
@@ -430,7 +432,6 @@ def error(A, sigma, sigma_max, sigma_min):
             The normalized objective gap as a scalar. Returns a division-by-zero
             result if the maximum and minimum objective values are equal.
         """
-    sigma = np.asarray(sigma, dtype=int)
 
     A_sigma     = A[np.ix_(sigma, sigma)]
     A_sigma_max = A[np.ix_(sigma_max, sigma_max)]
@@ -446,41 +447,113 @@ def error(A, sigma, sigma_max, sigma_min):
 
 # results
 
-with open("data.csv", "w", newline="") as file:
+n_list = np.array([10,11], dtype=np.int64)
+eps_list = np.concatenate(([0.0], 10.0**np.arange(-2, 2.5, 0.25)), dtype=np.float64)
+num_eps = len(eps_list)
+n_iter = 20
 
-    writer = csv.DictWriter(file, fieldnames=['n', 'eps', 'iter', 'matrix', 'sigma_max', 'sigma_min', 'alg1', 'e1', 'alg2', 'e2', 'alg3', 'e3', 'alg4', 'e4'])
-    writer.writeheader()
+# Folder in which the data will be saved
+os.makedirs("results", exist_ok=True)
 
-    for n in [10, 11]:
-        for eps in np.concatenate(([0.0], 10.0**np.arange(-2, 2.5, 0.25))):
-            for i in range(20):
+# We save the common metadata
+np.savez("results/metadata.npz", n_list=n_list, eps_list=eps_list, n_iter=n_iter)
 
-                LOP = generate_LOP(n, eps=eps)
+for n in n_list:
 
-                sigma_max, sigma_min = exact_solution(LOP)
+    # Creation of the files 
+    matrices = open_memmap(
+        f"results/n{n}_matrices.npy", mode="w+", dtype=np.float64, shape=(num_eps, n_iter, n, n)
+    )
+    sigma_max_arr = open_memmap(
+        f"results/n{n}_sigma_max.npy", mode="w+", dtype=np.int64, shape=(num_eps, n_iter, n)
+    )
+    sigma_min_arr = open_memmap(
+        f"results/n{n}_sigma_min.npy", mode="w+", dtype=np.int64, shape=(num_eps, n_iter, n)
+    )
+    algs = open_memmap(
+        f"results/n{n}_algs.npy", mode="w+", dtype=np.int64, shape=(4, num_eps, n_iter, n)
+    )
+    errors = open_memmap(
+        f"results/n{n}_errors.npy", mode="w+", dtype=np.float64, shape=(4, num_eps, n_iter)
+    )
 
-                solution_1  = becker_constructive(LOP)
-                error_1     = error(LOP, solution_1, sigma_max, sigma_min)
-                solution_2  = simple_row_col_subtraction(LOP)
-                error_2     = error(LOP, solution_2, sigma_max, sigma_min)
-                solution_3  = row_col_subtraction(LOP)
-                error_3     = error(LOP, solution_3, sigma_max, sigma_min)
-                solution_4  = univariate_inf(LOP)
-                error_4     = error(LOP, solution_4, sigma_max, sigma_min)
+    for e_idx, eps in enumerate(eps_list):
+        for i in range(n_iter):
 
-                writer.writerow({
-                    'n': n,
-                    'eps': eps,
-                    'iter': i,
-                    'matrix': LOP,
-                    'sigma_max': sigma_max,
-                    'sigma_min': sigma_min,
-                    'alg1': solution_1,
-                    'e1': error_1,
-                    'alg2': solution_2,
-                    'e2': error_2,
-                    'alg3': solution_3,
-                    'e3': error_3,
-                    'alg4': solution_4,
-                    'e4': error_4
-                })
+            print(f"n={n} | eps={eps:.4g} | Iteration {i}")
+
+            LOP = generate_LOP(n, eps=eps)
+            sigma_max, sigma_min = exact_solution(LOP)
+
+            solution_1 = becker_constructive(LOP)
+            error_1    = error(LOP, solution_1, sigma_max, sigma_min)
+            solution_2 = simple_row_col_subtraction(LOP)
+            error_2    = error(LOP, solution_2, sigma_max, sigma_min)
+            solution_3 = row_col_subtraction(LOP)
+            error_3    = error(LOP, solution_3, sigma_max, sigma_min)
+            solution_4 = univariate_inf(LOP)
+            error_4    = error(LOP, solution_4, sigma_max, sigma_min)
+
+            # Writing of the data
+            matrices[e_idx, i]      = LOP
+            sigma_max_arr[e_idx, i] = sigma_max
+            sigma_min_arr[e_idx, i] = sigma_min
+            algs[:, e_idx, i]   = [solution_1, solution_2, solution_3, solution_4]
+            errors[:, e_idx, i] = [error_1, error_2, error_3, error_4]
+
+        # After each eps, we force the operation system to flush all the intern memory into the hard drive
+        matrices.flush()
+        sigma_max_arr.flush()
+        sigma_min_arr.flush()
+        algs.flush()
+        errors.flush()
+
+
+
+
+
+
+
+
+# with open("data.csv", "w", newline="") as file:
+
+#     writer = csv.DictWriter(file, fieldnames=['n', 'eps', 'iter', 'matrix', 'sigma_max', 'sigma_min', 'alg1', 'e1', 'alg2', 'e2', 'alg3', 'e3', 'alg4', 'e4'])
+#     writer.writeheader()
+
+#     for n in n_list:
+#         for eps in eps_list:
+#             for i in range(n_iter):
+
+#                 print(f' Iteration {i}')
+
+#                 LOP = generate_LOP(n, eps=eps)
+
+#                 sigma_max, sigma_min = exact_solution(LOP)
+
+#                 solution_1  = becker_constructive(LOP)
+#                 error_1     = error(LOP, solution_1, sigma_max, sigma_min)
+#                 solution_2  = simple_row_col_subtraction(LOP)
+#                 error_2     = error(LOP, solution_2, sigma_max, sigma_min)
+#                 solution_3  = row_col_subtraction(LOP)
+#                 error_3     = error(LOP, solution_3, sigma_max, sigma_min)
+#                 solution_4  = univariate_inf(LOP)
+#                 error_4     = error(LOP, solution_4, sigma_max, sigma_min)
+
+#                 writer.writerow({
+#                     'n': n,
+#                     'eps': eps,
+#                     'iter': i,
+#                     'matrix': LOP,
+#                     'sigma_max': sigma_max,
+#                     'sigma_min': sigma_min,
+#                     'alg1': solution_1,
+#                     'e1': error_1,
+#                     'alg2': solution_2,
+#                     'e2': error_2,
+#                     'alg3': solution_3,
+#                     'e3': error_3,
+#                     'alg4': solution_4,
+#                     'e4': error_4
+#                 })
+
+#                 file.flush()
