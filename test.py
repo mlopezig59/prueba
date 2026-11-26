@@ -6,6 +6,7 @@ from scipy.optimize import linear_sum_assignment
 import csv
 
 
+
 # functions
 
 def generate_A_P(n):
@@ -192,7 +193,7 @@ def generate_A_NP(n):
                     idx = np.delete(idx, np.where(np.all(idx == [k, i], axis=1)), axis=0)
 
     
-    return A           
+    return A
 
 def test_A_NP(A):
     test = (A - A.T).sum(axis=1)
@@ -266,10 +267,8 @@ def exact_solution(LOP):
             sigma_min = sigma
 
         # print(f'Permutation: {sigma} --> Objective function: {sol_A}')
-        
 
     return sigma_max, sigma_min
-
 
 def becker_constructive(LOP):
 
@@ -291,21 +290,24 @@ def becker_constructive(LOP):
     n = len(LOP)
     A = np.copy(LOP)
 
-    indexes = np.arange(n)
-    sigma = np.array([])
+    min_val = np.min(A)
+    if min_val <= 0:
+        A = A - min_val + 1e-6
+        np.fill_diagonal(A, 0.0)
+
+    indexes = np.arange(n, dtype=int)
+    sigma = np.array([], dtype=int)
 
     while len(sigma) < n:
 
         if len(indexes) > 1:
-            diagonal = np.diag(A)
-            q = (A.sum(axis=1) - diagonal) / (A.sum(axis=0) - diagonal)
-            i = np.argmax(q)
+            q = (A.sum(axis=1)) / (A.sum(axis=0))
+            i = int(np.argmax(q))
         else:
             i = 0
             
         sigma = np.append(sigma, indexes[i])
-        A = np.delete(A, i, axis=0)
-        A = np.delete(A, i, axis=1)
+        A = np.delete(np.delete(A, i, axis=0), i, axis=1)
         indexes = np.delete(indexes, i)
 
     return sigma
@@ -367,59 +369,68 @@ def row_col_subtraction(LOP):
     while len(indexes) > 0:
 
         q = (A - A.T).sum(axis=1)
-        i1 = np.argmax(q[indexes])
-        i2 = np.argmax(-q[indexes])
+        i1 = np.argmax(q)
+        i2 = np.argmax(-q)
 
         if q[i1] > -q[i2]:
-            sigma = np.insert(sigma, np.where(sigma == -1)[0][0],       i1)
-            indexes = np.delete(indexes, i1)
+            chosen = i1
+            sigma = np.insert(sigma, np.where(sigma == -1)[0][0],       indexes[chosen])
         else:
-            sigma = np.insert(sigma, np.where(sigma == -1)[0][0] + 1,   i2)
-            indexes = np.delete(indexes, i2)
+            chosen = i2
+            sigma = np.insert(sigma, np.where(sigma == -1)[0][0] + 1,   indexes[chosen])
 
-    sigma = np.delete(sigma, -1)
+        A = np.delete(np.delete(A, chosen, axis=0), chosen, axis=1)
+        indexes = np.delete(indexes, chosen)
+
+    sigma = np.delete(sigma, np.where(sigma == -1)[0][0])
 
     return sigma
 
 def univariate_inf(LOP):
 
-    """Find a permutation maximizing the sum of one selected entry per row.
+    """Construct an ordering using the linear sum assignment algorithm.
 
-    Exhaustively checks all permutations and maximizes
-    ``sum(LOP[i, sigma[i]] for i in range(n))``. It also constructs a
-    matrix from the antisymmetric row sums and prints the result of applying
-    the linear sum assignment algorithm to that matrix; this result does not
-    affect the returned permutation.
+    Builds a score matrix from the row sums of ``LOP - LOP.T`` and finds
+    the assignment maximizing the total score.
 
     Args:
-        LOP: A square NumPy array.
+        LOP: A square NumPy array representing the LOP instance.
 
     Returns:
-        A permutation of column indices maximizing the selected-entry sum.
+        A NumPy array of column indices, one assigned to each row.
     """
 
     n = len(LOP)
     A = np.copy(LOP)
 
     m0 = (A - A.T).sum(axis=1)
-    M = m0 * (1 - 2 * np.arange(n)[:, None] / (n - 1))
+    M = m0 * (   1  -  2 * np.arange(n)[:, None] / (n - 1)   )
 
-    sol = float("-inf")
+    # sigma_list = list(permutations(range(n)))
+    # sigma = sigma_list[np.argmax(   [np.sum(  [ M[i][omega[i]] for i in range(n)]  )  for omega in sigma_list]   )]
 
-    print(linear_sum_assignment(M))
-
-
-    for sigma in list(permutations(range(n))):
-
-        sol_A = np.sum([A[i][sigma[i]] for i in range(n)])
-
-        if sol_A > sol:
-            sol = sol_A
-            sigma_max = sigma
-
-    return sigma_max
+    return linear_sum_assignment(-M)[1]
 
 def error(A, sigma, sigma_max, sigma_min):
+
+    """Compute the normalized objective gap for an ordering.
+    
+        Reorders ``A`` according to ``sigma``, ``sigma_max``, and ``sigma_min``,
+        then compares their objective values. The result is the absolute gap
+        between the candidate and maximum objectives divided by the range between
+        the maximum and minimum objectives.
+    
+        Args:
+            A: Square NumPy array representing the LOP instance.
+            sigma: Candidate ordering of the indices.
+            sigma_max: Ordering that achieves the maximum objective.
+            sigma_min: Ordering that achieves the minimum objective.
+    
+        Returns:
+            The normalized objective gap as a scalar. Returns a division-by-zero
+            result if the maximum and minimum objective values are equal.
+        """
+    sigma = np.asarray(sigma, dtype=int)
 
     A_sigma     = A[np.ix_(sigma, sigma)]
     A_sigma_max = A[np.ix_(sigma_max, sigma_max)]
