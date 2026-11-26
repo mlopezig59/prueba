@@ -445,36 +445,36 @@ def error(A, sigma, sigma_max, sigma_min):
 
 
 
-# results
+# data generation
 
 n_list = np.array([10,11], dtype=np.int64)
-eps_list = np.concatenate(([0.0], 10.0**np.arange(-2, 2.5, 0.25)), dtype=np.float64)
+eps_list = np.concatenate(([0.0], 10.0**np.linspace(-2, 2.5, 19)), dtype=np.float64)
 num_eps = len(eps_list)
 n_iter = 20
 
 # Folder in which the data will be saved
-os.makedirs("results", exist_ok=True)
+os.makedirs("data", exist_ok=True)
 
 # We save the common metadata
-np.savez("results/metadata.npz", n_list=n_list, eps_list=eps_list, n_iter=n_iter)
+np.savez("data/metadata.npz", n_list=n_list, eps_list=eps_list, n_iter=n_iter)
 
 for n in n_list:
 
     # Creation of the files 
     matrices = open_memmap(
-        f"results/n{n}_matrices.npy", mode="w+", dtype=np.float64, shape=(num_eps, n_iter, n, n)
+        f"data/n{n}_matrices.npy", mode="w+", dtype=np.float64, shape=(num_eps, n_iter, n, n)
     )
     sigma_max_arr = open_memmap(
-        f"results/n{n}_sigma_max.npy", mode="w+", dtype=np.int64, shape=(num_eps, n_iter, n)
+        f"data/n{n}_sigma_max.npy", mode="w+", dtype=np.int64, shape=(num_eps, n_iter, n)
     )
     sigma_min_arr = open_memmap(
-        f"results/n{n}_sigma_min.npy", mode="w+", dtype=np.int64, shape=(num_eps, n_iter, n)
+        f"data/n{n}_sigma_min.npy", mode="w+", dtype=np.int64, shape=(num_eps, n_iter, n)
     )
     algs = open_memmap(
-        f"results/n{n}_algs.npy", mode="w+", dtype=np.int64, shape=(4, num_eps, n_iter, n)
+        f"data/n{n}_algs.npy", mode="w+", dtype=np.int64, shape=(4, num_eps, n_iter, n)
     )
     errors = open_memmap(
-        f"results/n{n}_errors.npy", mode="w+", dtype=np.float64, shape=(4, num_eps, n_iter)
+        f"data/n{n}_errors.npy", mode="w+", dtype=np.float64, shape=(4, num_eps, n_iter)
     )
 
     for e_idx, eps in enumerate(eps_list):
